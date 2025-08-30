@@ -1,8 +1,8 @@
-// ==UserScript==     
+// ==UserScript==
 // @name         HoverPeek
 // @name:zh-CN   链接本页预览（悬停自动打开，可拖动+记忆位置大小）
 // @namespace    https://github.com/cemcoe/UserScript
-// @version      1.3.0
+// @version      5.8.30
 // @description  Hover links to preview in a draggable, resizable overlay (0.8s delay). Auto-remembers size/position. ESC closes. Some sites require new window due to iframe restrictions.
 // @description:zh-CN  悬停链接可预览，浮层可拖动/缩放（默认 0.8 秒延迟），自动记忆位置和大小。ESC 关闭。部分网站需新窗口打开（iframe 限制）。
 // @author       cemcoe
@@ -13,17 +13,50 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // ==/UserScript==
-/*
-📌 使用方法：
+
+/* 📌 使用方法：
 1. 鼠标悬停链接 > 0.8 秒，右下角弹出预览浮层
 2. 工具栏按钮：新标签打开 / 关闭
 3. ESC 可关闭浮层
 4. 油猴菜单可设置悬停延迟 (秒)
 5. 浮层位置和大小会自动记忆
+6. 油猴菜单可将当前域名加入/移除黑名单
 */
 
 (function() {
     'use strict';
+
+    // ===== 黑名单功能 =====
+    const currentDomain = window.location.hostname;
+    const defaultBlacklist = ['web.telegram.org', 'chatgpt.com'];
+    let blacklist = GM_getValue("blacklist", defaultBlacklist.slice());
+    const isBlacklisted = blacklist.includes(currentDomain);
+
+    // ===== 黑名单菜单（始终可用） =====
+    // 动态显示菜单
+    if (!isBlacklisted) {
+        GM_registerMenuCommand("加入黑名单（不在此域名运行脚本）", () => {
+            let bl = GM_getValue("blacklist", []);
+            if (!bl.includes(currentDomain)) {
+                bl.push(currentDomain);
+                GM_setValue("blacklist", bl);
+                alert(`已将 ${currentDomain} 加入黑名单，下次不再运行脚本`);
+            }
+        });
+    } else {
+        GM_registerMenuCommand("从黑名单移除当前域名", () => {
+            let bl = GM_getValue("blacklist", []);
+            bl = bl.filter(d => d !== currentDomain);
+            GM_setValue("blacklist", bl);
+            alert(`${currentDomain} 已从黑名单移除`);
+        });
+    }
+
+    // ===== 如果当前域名在黑名单中，不执行 HoverPeek 功能 =====
+    if (isBlacklisted) {
+        console.log(`HoverPeek: 当前域名 ${currentDomain} 在黑名单中，不执行浮层功能`);
+        return;
+    }
 
     // ================== 样式 ==================
     GM_addStyle(`
@@ -59,10 +92,9 @@
       height: calc(100% - 24px);
       border: none;
     }
-  `);
+    `);
 
     // ================== 工具函数 ==================
-
     function getAnchor(el) {
         while (el && el.tagName && el.tagName.toLowerCase() !== 'a') {
             el = el.parentElement;
@@ -105,26 +137,22 @@
         overlay.style.top = savedY || (window.innerHeight - 320 + "px");
 
         function openNewWindow(iframe) {
-          const width = 800;
-          const height = 600;
+            const width = 800;
+            const height = 600;
 
-          // 屏幕可用区域
-          const screenX = window.screen.availLeft || 0;
-          const screenY = window.screen.availTop || 0;
-          const screenWidth = window.screen.availWidth;
-          const screenHeight = window.screen.availHeight;
+            const screenX = window.screen.availLeft || 0;
+            const screenY = window.screen.availTop || 0;
+            const screenWidth = window.screen.availWidth;
+            const screenHeight = window.screen.availHeight;
 
-          // 右下角位置
-          const left = screenX + screenWidth - width;
-          const top = screenY + screenHeight - height;
+            const left = screenX + screenWidth - width;
+            const top = screenY + screenHeight - height;
 
-          // 打开窗口
-          window.open(
-            iframe.src,
-              "_blank",
-              `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-          );
-          
+            window.open(
+                iframe.src,
+                "_blank",
+                `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+            );
         }
 
         // 按钮点击
@@ -134,9 +162,8 @@
             } else if (e.target.dataset.act === "newtab") {
                 window.open(iframe.src, "_blank");
             } else if (e.target.dataset.act === "newwindow") {
-              openNewWindow(iframe)
-
-          }
+                openNewWindow(iframe);
+            }
         });
 
         // 记录大小
@@ -176,11 +203,10 @@
         document.addEventListener("keydown", (e) => {
             if (overlay.style.display === "block" && e.key === "Escape") {
                 overlay.style.display = "none";
-                e.stopPropagation(); // 阻止冒泡，减少对页面的影响
-                e.preventDefault(); // 阻止默认行为
+                e.stopPropagation();
+                e.preventDefault();
             }
         });
-
 
         return {
             show: (url) => {
@@ -189,22 +215,16 @@
 
                 // 延迟检查是否加载成功（CSP/跨域拦截不会触发 onerror）
                 setTimeout(() => {
-                    console.log("检查 iframe 是否加载成功");
-                    console.log(iframe.src);
                     try {
-                      const doc = iframe.contentDocument; // 如果跨域，会抛异常
-                      console.log(doc);
-
-                      if(!doc) {
-                        console.log("iframe 加载失败");
-                      }
-                      
+                        const doc = iframe.contentDocument;
+                        if (!doc) {
+                            console.log("iframe 加载失败");
+                        }
                     } catch (e) {
-                        // 跨域访问报错（说明被 CSP/X-Frame 拦截了）
                         console.warn("iframe 跨域或 CSP 拦截，尝试简版模式");
                         overlay.style.display = "none";
                     }
-                }, 1000); // 1 秒后检查
+                }, 1000);
             },
             hide: () => {
                 overlay.style.display = "none";
@@ -227,7 +247,6 @@
         try {
             const url = new URL(a.href);
 
-            // 常见跳转参数名
             const redirectKeys = ["target", "to", "url", "dest", "destination", "redirect"];
 
             for (const key of redirectKeys) {
@@ -236,14 +255,12 @@
                 }
             }
 
-            // 兜底：从所有参数里找第一个 http/https 链接
             for (const [key, val] of url.searchParams.entries()) {
                 if (/^https?:\/\//i.test(val)) {
                     return decodeURIComponent(val);
                 }
             }
 
-            // 有些站点直接把目标链接拼在 querystring 里
             const match = a.href.match(/https?:\/\/[^\s&#]+/);
             if (match) {
                 return match[0];
@@ -263,12 +280,10 @@
 
         hoverAnchor = a;
         clearTimeout(hoverTimer);
-        console.log(realUrl);
         hoverTimer = setTimeout(() => overlay.show(realUrl), getDelayMs());
     }, {
         passive: true
     });
-
 
     document.addEventListener("mouseout", (e) => {
         const to = e.relatedTarget;
